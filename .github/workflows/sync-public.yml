@@ -1,0 +1,67 @@
+# =============================================================================
+# 비공개 vault(IBK_private) -> 공개 저장소(IBK_public) 지식 그래프 동기화
+#
+# 필요한 시크릿: PUBLIC_SYNC_TOKEN
+#   - GitHub Fine-grained Personal Access Token (PAT)
+#   - Repository access: squarrel808/IBK_public 저장소만 선택
+#   - Repository permissions: Contents = Read and write
+#   - 이 저장소(IBK_private)의 Settings > Secrets and variables > Actions 에서
+#     "PUBLIC_SYNC_TOKEN" 이름으로 등록하세요.
+#
+# 동작: main 브랜치의 vault/** 또는 scripts/** 변경 시(또는 수동 실행 시)
+#   1) validate_vault.py 로 모든 노트의 front matter를 검증하고
+#   2) build_graph.py 로 최소 컨텍스트 graph.json 을 생성한 뒤
+#      (노트 본문·인용·저자·evidence 는 절대 포함되지 않음)
+#   3) IBK_public 의 data/graph.json 에 변경이 있을 때만 커밋/푸시합니다.
+# =============================================================================
+name: sync-public
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "vault/**"
+      - "scripts/**"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout private vault
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Validate vault notes
+        run: python scripts/validate_vault.py --vault vault/papers
+
+      - name: Build knowledge graph
+        run: python scripts/build_graph.py --vault vault/papers --out out/graph.json --pretty
+        # 기본값은 permission: public 노트만 export합니다. team 노트는 --include-team 을
+        # 명시한 별도 내부 배포에서만 포함하세요 — 이 워크플로(세계 공개 저장소용)에는 금지.
+
+      - name: Sync graph.json to IBK_public
+        env:
+          PUBLIC_SYNC_TOKEN: ${{ secrets.PUBLIC_SYNC_TOKEN }}
+        run: |
+          git clone "https://x-access-token:${PUBLIC_SYNC_TOKEN}@github.com/squarrel808/IBK_public.git" public_repo
+          mkdir -p public_repo/data
+          cp out/graph.json public_repo/data/graph.json
+          cd public_repo
+          git config user.name "ibk-graph-sync[bot]"
+          git config user.email "ibk-graph-sync@users.noreply.github.com"
+          if [ -n "$(git status --porcelain -- data/graph.json)" ]; then
+            git add data/graph.json
+            git commit -m "chore: sync knowledge graph from private vault"
+            git push
+            echo "공개 그래프가 갱신되었습니다."
+          else
+            echo "변경 사항이 없어 푸시를 건너뜁니다."
+          fi
