@@ -51,6 +51,10 @@ jobs:
         env:
           PUBLIC_SYNC_TOKEN: ${{ secrets.PUBLIC_SYNC_TOKEN }}
         run: |
+          if [ -z "${PUBLIC_SYNC_TOKEN}" ]; then
+            echo "::warning::PUBLIC_SYNC_TOKEN 시크릿이 등록되지 않아 IBK_public 동기화를 건너뜁니다. 파일 상단 주석의 절차대로 시크릿을 등록하면 다음 실행부터 자동 동기화됩니다."
+            exit 0
+          fi
           git clone "https://x-access-token:${PUBLIC_SYNC_TOKEN}@github.com/squarrel808/IBK_public.git" public_repo
           mkdir -p public_repo/data
           cp out/graph.json public_repo/data/graph.json
